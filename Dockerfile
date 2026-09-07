@@ -1,5 +1,5 @@
-# Uses node 22
-FROM node:22
+# Uses node 24
+FROM node:24
 
 # Create directory app
 WORKDIR /app

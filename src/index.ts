@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import tagRoutes from './routes/tagRoutes';
 import { login } from './controllers/authController';
+import projectRoutes from './routes/projectRoutes';
 
 dotenv.config();
 
@@ -12,8 +13,9 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/tags', tagRoutes);
 app.post('/api/auth/login', login);
+app.use('/api/tags', tagRoutes);
+app.use('/api/projects', projectRoutes);
 
 app.get('/', (req, res) => {
   res.send('Portfolio API is running...');
