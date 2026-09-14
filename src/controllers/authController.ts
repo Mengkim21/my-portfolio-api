@@ -1,19 +1,32 @@
 import { Request, Response } from "express";
-import { supabase } from "../config/supabase";
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { pool } from "../config/db";
 
 export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    const result = await pool.query('SELECT * FROM admins WHERE email = $1', [email]);
+    const admin = result.rows[0];
 
-    if (error) return res.status(401).json({ error: error.message });
+    if (!admin) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-    res.status(200).json({ token: data.session?.access_token });  
-  } catch (err) {
+    const validPassword = await bcrypt.compare(password, admin.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid Credentials' });
+    }
+
+    const token = jwt.sign(
+      { adminId: admin.id, email: admin.email },
+      process.env.JWT_SECRET as string,
+      { expiresIn: '7d' },
+    );
+
+    res.json({ token });
+  } catch (err: any) {
     res.status(500).json({ error: 'Login failed' });
   }
 };
