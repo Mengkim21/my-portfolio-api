@@ -34,4 +34,53 @@ export const createTag = async (req: Request, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+};
+
+export const updateTag = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, color_hex } = req.body;
+
+    const result = await pool.query(
+      `
+      UPDATE tags
+      SET
+        name = COALESCE($1, name),
+        color_hex = COALESCE($2, color_hex)
+      WHERE id = $3
+      RETURNING *;
+      `,
+      [name || null, color_hex || null, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    res.status(200).json({
+      message: 'Tag updated successfully',
+      data: result.rows[0]
+    })
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteTag = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM tags WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Tag not found'});
+    }
+
+    res.status(200).json({ message: 'Tag deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 }
