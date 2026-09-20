@@ -2,31 +2,52 @@ import { raw, Request, Response } from "express";
 import { pool } from "../config/db";
 
 async function resolvedTagId(client: any, item: any): Promise<number | null> {
-  if (typeof item === 'number') {
-    return item;
-  }
-
-  if (typeof item === 'string' && !isNaN(Number(item))) {
-    return Number(item);
-  }
-
-  if (typeof item === 'object' && item !== null && item.id && !isNaN(Number(item.id))) {
-    return Number(item.id);
-  }
-
-  let tagName = '';
-  let tagColor = '#3b82f6';
-
-  if (typeof item === 'string') {
-    tagName = item.trim();
-  } else if (typeof item === 'object' && item !== null && item.name) {
-    tagName = String(item.name).trim();
-    tagColor = item.color_hex || '#3b82f6';
-  }
-
-  if (!tagName) return null;
+  if (!item) return null;
   
-  const tagUpsertQuery = `
+  // if (typeof item === 'number') {
+  //   return item;
+  // }
+
+  // if (typeof item === 'string' && !isNaN(Number(item))) {
+  //   return Number(item);
+  // }
+
+  // if (typeof item === 'object' && item !== null && item.id && !isNaN(Number(item.id))) {
+  //   return Number(item.id);
+  // }
+
+  let name = '';
+  let color = '#3b82f6';
+  let explicitId: number | null = null;
+
+  if (typeof item === 'number') {
+    explicitId = item;
+  } else if (typeof item === 'string') {
+    if (!isNaN(Number(item))) {
+      explicitId = Number(item);
+    } else {
+      name = item.trim();
+    }
+  } else if (typeof item === 'object' && item !== null) {
+    if (item.name) {
+      name = String(item.name).trim();
+      color = item.color_hex || "#3b82f6";
+    } else if (item.id && !isNaN(Number(item.id))) {
+      explicitId = Number(item.id);
+    }
+  }
+
+  // if (typeof item === 'string') {
+  //   tagName = item.trim();
+  // } else if (typeof item === 'object' && item !== null && item.name) {
+  //   tagName = String(item.name).trim();
+  //   tagColor = item.color_hex || '#3b82f6';
+  // }
+
+  // if (!tagName) return null;
+  
+  if (name) {
+    const tagUpsertQuery = `
     INSERT INTO tags (name, color_hex)
     VALUES ($1, $2)
     ON CONFLICT (name) DO UPDATE
@@ -34,8 +55,19 @@ async function resolvedTagId(client: any, item: any): Promise<number | null> {
     RETURNING id;
   `;
 
-  const res = await client.query(tagUpsertQuery, [tagName, tagColor]);
-  return res.rows[0]?.id ? Number(res.rows[0].id) : null;
+    const res = await client.query(tagUpsertQuery, [name, color]);
+    return res.rows[0]?.id ? Number(res.rows[0].id) : null;
+  }
+
+  if (explicitId !== null) {
+    const check = await client.query('SELECT id FROM tags WHERE id = $1', [explicitId]);
+    
+    if (check.rows.length > 0) {
+      return explicitId;
+    }
+  }
+  
+  return null;
 }
 
 export const getAllProjects = async (req: Request, res: Response) => {
@@ -76,7 +108,7 @@ export const createProject = async (req: Request, res: Response) => {
       summary,
       description_markdown,
       image_url,
-      github_url,
+      github_urls,
       live_url,
       is_featured,
       tags
@@ -88,11 +120,15 @@ export const createProject = async (req: Request, res: Response) => {
     const projectInsertQuery = `
       INSERT INTO projects (
         title, slug, summary, description_markdown,
-        image_url, github_url, live_url, is_featured
+        image_url, github_urls, live_url, is_featured
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *;
     `;
+
+    const formattedGithubUrls = JSON.stringify(
+      Array.isArray(github_urls) ? github_urls : []
+    );
 
     const projectResult = await client.query(projectInsertQuery, [
       title,
@@ -100,7 +136,7 @@ export const createProject = async (req: Request, res: Response) => {
       summary || null,
       description_markdown || null,
       image_url || null,
-      github_url || null,
+      formattedGithubUrls,
       live_url || null,
       is_featured || false
     ]);
@@ -187,13 +223,17 @@ export const updateProject = async (req: Request, res: Response) => {
       summary,
       description_markdown,
       image_url,
-      github_url,
+      github_urls,
       live_url,
       is_featured,
       tags
     } = req.body;
 
     await client.query('BEGIN');
+
+    const formattedGithubUrls = github_urls !== undefined
+      ? JSON.stringify(Array.isArray(github_urls) ? github_urls : [])
+      : null;
 
     const updateProjectQuery = `
       UPDATE projects
@@ -203,7 +243,7 @@ export const updateProject = async (req: Request, res: Response) => {
         summary = COALESCE($3, summary),
         description_markdown = COALESCE($4, description_markdown),
         image_url = $5,
-        github_url = $6,
+        github_urls = COALESCE($6::jsonb, github_urls),
         live_url = $7,
         is_featured = COALESCE($8, is_featured)
       WHERE id = $9
@@ -216,7 +256,7 @@ export const updateProject = async (req: Request, res: Response) => {
       summary || null,
       description_markdown || null,
       image_url !== undefined ? image_url : null,
-      github_url !== undefined ? github_url : null,
+      formattedGithubUrls,
       live_url !== undefined ? live_url : null,
       is_featured !== undefined ? is_featured : null,
       id
@@ -230,7 +270,7 @@ export const updateProject = async (req: Request, res: Response) => {
     if (tags && Array.isArray(tags)) {
       await client.query('DELETE FROM project_tags WHERE project_id = $1', [id]);
 
-      for (const item in tags) {
+      for (const item of tags) {
         const tagId = await resolvedTagId(client, item);
 
         if (tagId !== null) {
